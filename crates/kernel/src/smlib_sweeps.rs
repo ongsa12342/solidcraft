@@ -1667,12 +1667,27 @@ mod imp {
         with_history(body, &roles, pieces)
     }
 
+    /// How far the faceted walls of a screw sweep may sit from the true screw surfaces (mm).
+    ///
+    /// The default is a ten-thousandth of the pitch, which is far finer than any fabrication
+    /// process needs and makes a fine-pitch thread enormously dense: an M54x1 thread over a
+    /// 10 mm band comes out as roughly ten thousand faces, and later booleans on that body
+    /// (splitting a threaded tube into halves, cutting a slot through it) then fail outright.
+    /// `SOLIDCRAFT_SCREW_TOL` (mm) overrides it, so a design that has to stay editable after
+    /// threading can trade thread fidelity for a body the kernel can still operate on.
+    fn screw_tolerance(pitch: f64) -> f64 {
+        std::env::var("SOLIDCRAFT_SCREW_TOL")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .map_or_else(|| (pitch.abs() * 1e-4).clamp(1e-6, 1e-2), |v| v.clamp(1e-6, 1.0))
+    }
+
     /// The profile `pieces` on `plane` carried by a screw motion about the axis through `origin`
     /// along `axis`: `turns` right-handed turns, rising `pitch` per turn.
     pub(crate) fn screw(plane: &Plane, pieces: &[Piece], origin: Vec3, axis: Vec3, pitch: f64, turns: f64) -> Result<Body> {
         let c = curves(plane, pieces)?;
-        // Walls within a ten-thousandth of the pitch of the true screw surfaces.
-        let tolerance = (pitch.abs() * 1e-4).clamp(1e-6, 1e-2);
+        let tolerance = screw_tolerance(pitch);
         let brep = Brep::screw_sweep(&c, p(origin), p(axis), pitch, turns, tolerance).map_err(|e| failed("screw sweep", e))?;
         let body = body_of(brep, "screw sweep")?;
         let roles = roles(&body, plane, None, &seeds(plane, pieces, |q| q), &[], true)?;
@@ -1691,7 +1706,7 @@ mod imp {
         law: &[(f64, f64)],
     ) -> Result<Body> {
         let c = curves(plane, pieces)?;
-        let tolerance = (pitch.abs() * 1e-4).clamp(1e-6, 1e-2);
+        let tolerance = screw_tolerance(pitch);
         let brep =
             Brep::screw_sweep_radial(&c, p(origin), p(axis), pitch, turns, law, tolerance).map_err(|e| failed("screw sweep with a radial law", e))?;
         let body = body_of(brep, "screw sweep")?;
